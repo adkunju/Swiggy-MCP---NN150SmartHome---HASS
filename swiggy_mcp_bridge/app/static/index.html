@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Swiggy MCP Bridge</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: -apple-system, system-ui, sans-serif; background:#111; color:#eee; margin:0; padding:24px; }
+  .card { background:#1b1b1b; border:1px solid #333; border-radius:10px; padding:20px; max-width:720px; margin:0 auto 16px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h2 { font-size:15px; color:#aaa; margin:0 0 12px; }
+  .badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:13px; font-weight:600; }
+  .ok { background:#14321f; color:#5fd98b; }
+  .bad { background:#3a1c1c; color:#ff8080; }
+  button { background:#ff5200; color:#fff; border:none; border-radius:6px; padding:9px 16px; font-size:14px; cursor:pointer; }
+  button.secondary { background:#333; }
+  button:disabled { opacity:.5; cursor:default; }
+  input[type=text], textarea { width:100%; box-sizing:border-box; background:#0d0d0d; color:#eee; border:1px solid #333; border-radius:6px; padding:8px; font-family:monospace; font-size:13px; }
+  textarea { min-height:160px; }
+  pre { background:#0d0d0d; border:1px solid #333; border-radius:6px; padding:12px; overflow:auto; font-size:12px; }
+  .row { display:flex; gap:8px; align-items:center; margin:10px 0; flex-wrap:wrap; }
+  a { color:#ff9c66; }
+  label { font-size:13px; color:#aaa; display:block; margin-bottom:4px; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h1>🛒 Swiggy MCP Bridge</h1>
+  <h2>Local OAuth bridge for Swiggy Builders Club MCP servers</h2>
+  <div class="row">
+    <span>Status:</span>
+    <span id="status-badge" class="badge">checking…</span>
+  </div>
+  <div id="enabled-servers" class="row" style="color:#999;font-size:13px;"></div>
+
+  <div id="login-block" class="row" style="display:none;">
+    <button id="login-btn">Login with Swiggy</button>
+  </div>
+
+  <div id="paste-block" style="display:none;">
+    <p style="font-size:13px;color:#aaa;">
+      A tab opened to Swiggy's login. After you approve, it'll land on a page at
+      <code>http://localhost/callback?...</code> that looks broken -- that's expected.
+      Copy that whole address bar URL and paste it below.
+    </p>
+    <label for="redirect-input">Redirect URL</label>
+    <div class="row">
+      <input type="text" id="redirect-input" placeholder="http://localhost/callback?code=...&state=...">
+      <button id="submit-btn">Complete login</button>
+    </div>
+  </div>
+
+  <div id="logout-block" class="row" style="display:none;">
+    <button id="logout-btn" class="secondary">Logout / Re-authenticate</button>
+  </div>
+
+  <pre id="message" style="display:none;"></pre>
+</div>
+
+<div class="card">
+  <h2 style="color:#eee;font-size:16px;">Discover real tool names</h2>
+  <p style="font-size:13px;color:#aaa;">
+    Swiggy doesn't publish exact MCP tool names outside the Builders Club program.
+    Once you're authenticated and your integration has production access, list what's
+    actually available here, then fix up the mapping below so <code>/api/poll</code>
+    calls the right tools.
+  </p>
+  <div class="row">
+    <select id="server-select"></select>
+    <button id="discover-btn" class="secondary">List tools</button>
+  </div>
+  <pre id="tools-output"></pre>
+</div>
+
+<div class="card">
+  <h2 style="color:#eee;font-size:16px;">Tool name mapping</h2>
+  <p style="font-size:13px;color:#aaa;">
+    Logical operation → real MCP tool name, per server. Edited here, not in the image,
+    so you don't need to rebuild the add-on when Swiggy's tool names change.
+  </p>
+  <textarea id="map-editor" spellcheck="false"></textarea>
+  <div class="row">
+    <button id="save-map-btn">Save mapping</button>
+    <span id="map-status" style="font-size:13px;color:#999;"></span>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+async function api(path, opts) {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  const body = await res.json();
+  if (!body.ok) throw new Error(body.error || ('HTTP ' + res.status));
+  return body.data;
+}
+
+function showMessage(text, isError) {
+  const el = $('message');
+  el.style.display = 'block';
+  el.style.color = isError ? '#ff8080' : '#8ad28a';
+  el.textContent = text;
+}
+
+async function refreshStatus() {
+  try {
+    const s = await api('/api/status');
+    const badge = $('status-badge');
+    if (s.authenticated) {
+      badge.textContent = '✓ Authenticated';
+      badge.className = 'badge ok';
+      $('login-block').style.display = 'none';
+      $('paste-block').style.display = 'none';
+      $('logout-block').style.display = 'flex';
+    } else {
+      badge.textContent = 'Not authenticated';
+      badge.className = 'badge bad';
+      $('login-block').style.display = 'flex';
+      $('logout-block').style.display = 'none';
+    }
+    $('enabled-servers').textContent = 'Enabled servers: ' + s.enabled_servers.join(', ');
+
+    const sel = $('server-select');
+    sel.innerHTML = '';
+    for (const name of s.enabled_servers) {
+      const opt = document.createElement('option');
+      opt.value = name; opt.textContent = name;
+      sel.appendChild(opt);
+    }
+  } catch (e) {
+    showMessage('Could not reach the bridge: ' + e.message, true);
+  }
+}
+
+$('login-btn').onclick = async () => {
+  try {
+    const { authorize_url } = await api('/auth/start', { method: 'POST' });
+    window.open(authorize_url, '_blank');
+    $('paste-block').style.display = 'block';
+  } catch (e) { showMessage('Login start failed: ' + e.message, true); }
+};
+
+$('submit-btn').onclick = async () => {
+  try {
+    await api('/auth/submit', {
+      method: 'POST',
+      body: JSON.stringify({ redirect_url: $('redirect-input').value }),
+    });
+    showMessage('Logged in.', false);
+    $('redirect-input').value = '';
+    await refreshStatus();
+  } catch (e) { showMessage('Login failed: ' + e.message, true); }
+};
+
+$('logout-btn').onclick = async () => {
+  await api('/auth/logout', { method: 'POST' });
+  await refreshStatus();
+};
+
+$('discover-btn').onclick = async () => {
+  const server = $('server-select').value;
+  const out = $('tools-output');
+  out.textContent = 'Loading…';
+  try {
+    const tools = await api(`/api/${server}/tools`);
+    out.textContent = JSON.stringify(tools, null, 2);
+  } catch (e) {
+    out.textContent = 'Error: ' + e.message;
+  }
+};
+
+async function loadMap() {
+  const map = await api('/api/tool-map');
+  $('map-editor').value = JSON.stringify(map, null, 2);
+}
+
+$('save-map-btn').onclick = async () => {
+  try {
+    const parsed = JSON.parse($('map-editor').value);
+    await api('/api/tool-map', { method: 'POST', body: JSON.stringify(parsed) });
+    $('map-status').textContent = 'Saved.';
+  } catch (e) {
+    $('map-status').textContent = 'Error: ' + e.message;
+  }
+};
+
+refreshStatus();
+loadMap();
+</script>
+</body>
+</html>

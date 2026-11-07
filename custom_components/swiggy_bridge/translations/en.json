@@ -1,0 +1,18 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Swiggy MCP Bridge",
+        "data": { "base_url": "Add-on URL" }
+      }
+    },
+    "error": { "cannot_connect": "Could not reach the add-on at that URL." }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": { "base_url": "Add-on URL" }
+      }
+    }
+  }
+}
