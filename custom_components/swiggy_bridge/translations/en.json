@@ -3,15 +3,22 @@
     "step": {
       "user": {
         "title": "Connect to Swiggy MCP Bridge",
-        "data": { "base_url": "Add-on URL" }
+        "data": {
+          "base_url": "Add-on URL"
+        },
+        "description": "Enter the Swiggy MCP Bridge add-on's internal address: http://<hostname>:8099, where <hostname> is shown on the add-on's Info tab (Settings → Apps → Swiggy MCP Bridge). The add-on must be installed and running."
       }
     },
-    "error": { "cannot_connect": "Could not reach the add-on at that URL." }
+    "error": {
+      "cannot_connect": "Could not reach the add-on at that URL. Check it's running and that the hostname matches its Info tab."
+    }
   },
   "options": {
     "step": {
       "init": {
-        "data": { "base_url": "Add-on URL" }
+        "data": {
+          "base_url": "Add-on URL"
+        }
       }
     }
   }

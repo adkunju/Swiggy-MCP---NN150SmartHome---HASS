@@ -90,12 +90,21 @@
 <script>
 const $ = (id) => document.getElementById(id);
 
+// Paths are relative on purpose: under Home Assistant ingress this page is
+// served from /api/hassio_ingress/<token>/, so an absolute "/api/status"
+// would hit Home Assistant's own API instead of this add-on.
 async function api(path, opts) {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
     ...opts,
   });
-  const body = await res.json();
+  const text = await res.text();
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`HTTP ${res.status} from ${path}: ${text.slice(0, 120)}`);
+  }
   if (!body.ok) throw new Error(body.error || ('HTTP ' + res.status));
   return body.data;
 }
@@ -109,7 +118,7 @@ function showMessage(text, isError) {
 
 async function refreshStatus() {
   try {
-    const s = await api('/api/status');
+    const s = await api('api/status');
     const badge = $('status-badge');
     if (s.authenticated) {
       badge.textContent = '✓ Authenticated';
@@ -139,7 +148,7 @@ async function refreshStatus() {
 
 $('login-btn').onclick = async () => {
   try {
-    const { authorize_url } = await api('/auth/start', { method: 'POST' });
+    const { authorize_url } = await api('auth/start', { method: 'POST' });
     window.open(authorize_url, '_blank');
     $('paste-block').style.display = 'block';
   } catch (e) { showMessage('Login start failed: ' + e.message, true); }
@@ -147,7 +156,7 @@ $('login-btn').onclick = async () => {
 
 $('submit-btn').onclick = async () => {
   try {
-    await api('/auth/submit', {
+    await api('auth/submit', {
       method: 'POST',
       body: JSON.stringify({ redirect_url: $('redirect-input').value }),
     });
@@ -158,7 +167,7 @@ $('submit-btn').onclick = async () => {
 };
 
 $('logout-btn').onclick = async () => {
-  await api('/auth/logout', { method: 'POST' });
+  await api('auth/logout', { method: 'POST' });
   await refreshStatus();
 };
 
@@ -167,7 +176,7 @@ $('discover-btn').onclick = async () => {
   const out = $('tools-output');
   out.textContent = 'Loading…';
   try {
-    const tools = await api(`/api/${server}/tools`);
+    const tools = await api(`api/${server}/tools`);
     out.textContent = JSON.stringify(tools, null, 2);
   } catch (e) {
     out.textContent = 'Error: ' + e.message;
@@ -175,14 +184,14 @@ $('discover-btn').onclick = async () => {
 };
 
 async function loadMap() {
-  const map = await api('/api/tool-map');
+  const map = await api('api/tool-map');
   $('map-editor').value = JSON.stringify(map, null, 2);
 }
 
 $('save-map-btn').onclick = async () => {
   try {
     const parsed = JSON.parse($('map-editor').value);
-    await api('/api/tool-map', { method: 'POST', body: JSON.stringify(parsed) });
+    await api('api/tool-map', { method: 'POST', body: JSON.stringify(parsed) });
     $('map-status').textContent = 'Saved.';
   } catch (e) {
     $('map-status').textContent = 'Error: ' + e.message;
