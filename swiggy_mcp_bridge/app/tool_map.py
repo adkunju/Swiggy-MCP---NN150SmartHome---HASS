@@ -39,6 +39,15 @@ DEFAULTS = {
 }
 
 
+# Operations that only read data. /api/poll calls these and nothing else --
+# clear_cart/add_to_cart must only ever run on an explicit user action.
+READ_OPS = {
+    "instamart": ["get_cart", "list_orders", "list_addresses"],
+    "dineout": ["list_bookings"],
+    "food": [],
+}
+
+
 def load() -> dict:
     merged = {server: dict(ops) for server, ops in DEFAULTS.items()}
     if OVERRIDE_FILE.exists():

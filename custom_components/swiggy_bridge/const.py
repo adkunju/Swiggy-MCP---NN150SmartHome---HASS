@@ -11,4 +11,9 @@ CONF_BASE_URL = "base_url"
 # says it can't connect, copy the real hostname from the add-on's Info tab.
 DEFAULT_BASE_URL = "http://1fb9fa61-swiggy-mcp-bridge:8099"
 
-DEFAULT_SCAN_INTERVAL = 60  # seconds -- the add-on itself refreshes tokens as needed
+# Polling intervals in seconds (see coordinator.py).
+DEFAULT_SCAN_INTERVAL = 300
+ACTIVE_ORDER_SCAN_INTERVAL = 60
+DEMO_SCAN_INTERVAL = 15
+
+TERMINAL_ORDER_STATES = {"delivered", "cancelled", "canceled", "failed", "refunded"}

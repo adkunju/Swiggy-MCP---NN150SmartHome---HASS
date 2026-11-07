@@ -1,5 +1,5 @@
 name: Swiggy MCP Bridge
-version: "0.1.1"
+version: "0.2.0"
 slug: swiggy_mcp_bridge
 description: >-
   Local OAuth-authenticated bridge between Home Assistant and Swiggy's
@@ -24,8 +24,12 @@ options:
   # is not currently grantable to third-party integrators -- see README.
   enabled_servers:
     - instamart
+  # Serve stub Instamart data instead of calling Swiggy (for demos/testing
+  # before production access is granted). Clearly labelled in the UI.
+  demo_mode: false
 schema:
   log_level: list(debug|info|warning|error)
+  demo_mode: bool
   enabled_servers:
     - list(instamart|dineout|food)
 map:

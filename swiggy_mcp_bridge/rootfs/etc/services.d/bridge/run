@@ -4,6 +4,7 @@ set -e
 export LOG_LEVEL=$(bashio::config 'log_level')
 export ENABLED_SERVERS=$(bashio::config 'enabled_servers | join(",")')
 export DATA_DIR="/data"
+export DEMO_MODE=$(bashio::config 'demo_mode')
 
-bashio::log.info "Starting Swiggy MCP Bridge (servers: ${ENABLED_SERVERS})"
+bashio::log.info "Starting Swiggy MCP Bridge (servers: ${ENABLED_SERVERS}, demo: ${DEMO_MODE})"
 exec python3 /app/server.py

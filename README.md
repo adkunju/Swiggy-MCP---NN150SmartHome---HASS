@@ -15,7 +15,7 @@ called out explicitly below -- read that section first.
 ```
 Home Assistant
   └─ custom_components/swiggy_bridge  (HACS integration)
-       polls  GET /api/poll  every 60s
+       polls  GET /api/poll  every 5 min (60 s while an order is active)
        │
        ▼
   swiggy_mcp_bridge  (HA add-on, Docker, ingress UI)
@@ -119,6 +119,18 @@ educated guesses, not confirmed. Once your access is live:
    `POST /api/instamart/call {"tool": "...", "arguments": {}}` (or the
    `extra_state_attributes` on `Instamart Cart Items`) to see real field
    names and adjust.
+
+## Demo mode
+
+Swiggy's access application asks for a video of a working flow built against
+a stub. Turn on `demo_mode` in the add-on's Configuration tab and restart it:
+the add-on then serves stub Instamart data (a cart, saved addresses, and an
+order that goes placed → packed → out for delivery → delivered over 4
+minutes) instead of calling Swiggy. The add-on UI shows a "Demo mode" banner
+with a button to restart the demo order, every entity gets a `demo_data: true`
+attribute, and the integration polls every 15 s so changes show up quickly.
+Demo item IDs for `swiggy_bridge.add_to_cart`: `demo-milk`, `demo-bread`,
+`demo-eggs`, `demo-bananas`. Turn demo mode off again once you have access.
 
 ## What's been tested (and what hasn't)
 

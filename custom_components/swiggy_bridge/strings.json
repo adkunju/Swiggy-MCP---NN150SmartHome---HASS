@@ -13,11 +13,18 @@
       "cannot_connect": "Could not reach the add-on at that URL. Check it's running and that the hostname matches its Info tab."
     }
   },
-  "options": {
-    "step": {
-      "init": {
-        "data": {
-          "base_url": "Add-on URL"
+  "services": {
+    "add_to_cart": {
+      "name": "Add to Instamart cart",
+      "description": "Adds an item to the Instamart cart via the Swiggy MCP Bridge add-on.",
+      "fields": {
+        "item_id": {
+          "name": "Item ID",
+          "description": "Product ID from Instamart (in demo mode: demo-milk, demo-bread, demo-eggs or demo-bananas)."
+        },
+        "quantity": {
+          "name": "Quantity",
+          "description": "How many to add."
         }
       }
     }

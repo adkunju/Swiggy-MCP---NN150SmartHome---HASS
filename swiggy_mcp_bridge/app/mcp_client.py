@@ -19,6 +19,7 @@ from __future__ import annotations
 import itertools
 import json
 import logging
+import re
 from typing import Any, Optional
 
 import aiohttp
@@ -45,8 +46,30 @@ class McpAccessDenied(Exception):
     even though the user is authenticated. See Swiggy Builders access review."""
 
     def __init__(self, server: str, body: str):
-        super().__init__(f"{server}: access denied (403): {body[:300]}")
+        super().__init__(f"{server}: {_describe_403(body)}")
         self.server = server
+
+
+def _describe_403(body: str) -> str:
+    """Swiggy answers refused MCP calls with its website's HTML error page,
+    not a JSON-RPC error -- don't dump that HTML into the UI."""
+    stripped = body.lstrip()
+    if stripped.startswith("{"):
+        try:
+            data = json.loads(stripped)
+            err = data.get("error", data)
+            msg = err.get("message") if isinstance(err, dict) else str(err)
+            return f"Swiggy refused access (HTTP 403): {msg}"
+        except (json.JSONDecodeError, AttributeError):
+            pass
+    if stripped.lower().startswith("<"):
+        match = re.search(r"<title[^>]*>(.*?)</title>", body, re.IGNORECASE | re.DOTALL)
+        title = f' (page title: "{match.group(1).strip()[:80]}")' if match and match.group(1).strip() else ""
+        return (
+            f"Swiggy refused access (HTTP 403, HTML error page{title}). This usually means "
+            "this integration hasn't been granted production access to this server yet."
+        )
+    return f"Swiggy refused access (HTTP 403): {body[:200]}"
 
 
 class McpError(Exception):

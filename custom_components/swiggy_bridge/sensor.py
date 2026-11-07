@@ -1,166 +1,180 @@
 """
-Sensors built from whatever /api/poll returns. Field names inside each
-payload (e.g. cart.get("total")) are best-effort guesses based on the
-"feature areas" Swiggy documents publicly (cart management, order
-tracking, address book) -- they are NOT confirmed against a real response,
-since tool schemas aren't published outside the Builders Club program.
-Once you can hit /api/instamart/tools for real, check the actual shapes
-and adjust the `.get(...)` chains below.
+Sensors built from the add-on's /api/poll snapshot.
+
+Field names inside each payload (cart["total"], order["eta"], ...) match the
+add-on's demo data and are best guesses for the real Swiggy responses, which
+aren't published outside the Builders Club program. Once real access works,
+compare against "List tools" / a real payload and adjust the lookups here.
 """
 from __future__ import annotations
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
-from .coordinator import SwiggyBridgeCoordinator
+from .coordinator import SwiggyBridgeCoordinator, active_order
 
 
-def _device_info(coordinator: SwiggyBridgeCoordinator) -> DeviceInfo:
+def device_info(coordinator: SwiggyBridgeCoordinator) -> DeviceInfo:
     return DeviceInfo(
         identifiers={(DOMAIN, coordinator.base_url)},
         name="Swiggy MCP Bridge",
-        manufacturer="Swiggy (unofficial)",
+        manufacturer="Swiggy (unofficial integration)",
         model="Builders Club MCP",
     )
 
 
-def _active_order(orders: list | None) -> dict | None:
-    if not orders:
-        return None
-    terminal = {"delivered", "cancelled", "failed"}
-    for order in orders:
-        if str(order.get("status", "")).lower() not in terminal:
-            return order
-    return None
+class SwiggyEntity(CoordinatorEntity[SwiggyBridgeCoordinator]):
+    _attr_has_entity_name = True
 
-
-class _BaseSensor(CoordinatorEntity[SwiggyBridgeCoordinator], SensorEntity):
     def __init__(self, coordinator: SwiggyBridgeCoordinator, key: str, name: str, icon: str | None = None):
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.base_url}_{key}"
         self._attr_name = name
         self._attr_icon = icon
-        self._attr_device_info = _device_info(coordinator)
-
-
-class InstamartCartTotalSensor(_BaseSensor):
-    _attr_native_unit_of_measurement = "INR"
-    _attr_device_class = "monetary"
-
-    def __init__(self, coordinator):
-        super().__init__(coordinator, "instamart_cart_total", "Instamart Cart Total", "mdi:currency-inr")
-
-    @property
-    def native_value(self):
-        cart = self.coordinator.op("instamart", "get_cart")
-        if not cart:
-            return None
-        return cart.get("total") or cart.get("total_amount")
-
-
-class InstamartCartItemsSensor(_BaseSensor):
-    def __init__(self, coordinator):
-        super().__init__(coordinator, "instamart_cart_items", "Instamart Cart Items", "mdi:cart-outline")
-
-    @property
-    def native_value(self):
-        cart = self.coordinator.op("instamart", "get_cart")
-        if not cart:
-            return None
-        items = cart.get("items", [])
-        return len(items)
+        self._attr_device_info = device_info(coordinator)
 
     @property
     def extra_state_attributes(self):
-        cart = self.coordinator.op("instamart", "get_cart")
-        return {"items": cart.get("items", [])} if cart else {}
+        return {"demo_data": True} if self.coordinator.demo else {}
 
 
-class InstamartOrderStatusSensor(_BaseSensor):
-    def __init__(self, coordinator):
-        super().__init__(coordinator, "instamart_order_status", "Instamart Order Status", "mdi:truck-delivery-outline")
-
-    @property
-    def native_value(self):
-        order = _active_order(self.coordinator.op("instamart", "list_orders"))
-        return order.get("status") if order else "no_active_order"
+def _cart(coordinator):
+    cart = coordinator.op("instamart", "get_cart")
+    return cart if isinstance(cart, dict) else None
 
 
-class InstamartOrderEtaSensor(_BaseSensor):
-    _attr_device_class = "timestamp"
-
-    def __init__(self, coordinator):
-        super().__init__(coordinator, "instamart_order_eta", "Instamart Order ETA", "mdi:clock-outline")
-
-    @property
-    def native_value(self):
-        order = _active_order(self.coordinator.op("instamart", "list_orders"))
-        return order.get("eta") if order else None
+def _orders(coordinator):
+    return coordinator.op("instamart", "list_orders")
 
 
-class InstamartBilledAmountSensor(_BaseSensor):
+class InstamartCartTotalSensor(SwiggyEntity, SensorEntity):
     _attr_native_unit_of_measurement = "INR"
-    _attr_device_class = "monetary"
+    _attr_device_class = SensorDeviceClass.MONETARY
 
     def __init__(self, coordinator):
-        super().__init__(coordinator, "instamart_billed_amount", "Instamart Billed Amount", "mdi:receipt-text-outline")
+        super().__init__(coordinator, "instamart_cart_total", "Instamart cart total", "mdi:currency-inr")
 
     @property
     def native_value(self):
-        order = _active_order(self.coordinator.op("instamart", "list_orders"))
+        cart = _cart(self.coordinator)
+        if cart is None:
+            return None
+        return cart.get("total", cart.get("total_amount"))
+
+
+class InstamartCartItemsSensor(SwiggyEntity, SensorEntity):
+    def __init__(self, coordinator):
+        super().__init__(coordinator, "instamart_cart_items", "Instamart cart items", "mdi:cart-outline")
+
+    @property
+    def native_value(self):
+        cart = _cart(self.coordinator)
+        if cart is None:
+            return None
+        return sum(int(i.get("quantity", 1)) for i in cart.get("items", []))
+
+    @property
+    def extra_state_attributes(self):
+        attrs = dict(super().extra_state_attributes)
+        cart = _cart(self.coordinator)
+        if cart:
+            attrs["items"] = [
+                f"{i.get('quantity', 1)} × {i.get('name', i.get('id', '?'))}" for i in cart.get("items", [])
+            ]
+        return attrs
+
+
+class InstamartOrderStatusSensor(SwiggyEntity, SensorEntity):
+    def __init__(self, coordinator):
+        super().__init__(coordinator, "instamart_order_status", "Instamart order status", "mdi:truck-delivery-outline")
+
+    @property
+    def native_value(self):
+        orders = _orders(self.coordinator)
+        if orders is None:
+            return None  # data unavailable (e.g. no access yet) -- not "no order"
+        order = active_order(orders)
+        if order:
+            return order.get("status")
+        # Show the most recent finished order's status (e.g. "delivered") so
+        # automations can trigger on the transition into it.
+        if isinstance(orders, list) and orders and isinstance(orders[0], dict):
+            return orders[0].get("status")
+        return "no_active_order"
+
+    @property
+    def extra_state_attributes(self):
+        attrs = dict(super().extra_state_attributes)
+        orders = _orders(self.coordinator)
+        order = active_order(orders) or (orders[0] if isinstance(orders, list) and orders else None)
+        if isinstance(order, dict):
+            for key in ("order_id", "store_name"):
+                if key in order:
+                    attrs[key] = order[key]
+            if "items" in order:
+                attrs["items"] = [f"{i.get('quantity', 1)} × {i.get('name', '?')}" for i in order["items"]]
+        return attrs
+
+
+class InstamartOrderEtaSensor(SwiggyEntity, SensorEntity):
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, coordinator):
+        super().__init__(coordinator, "instamart_order_eta", "Instamart order ETA", "mdi:clock-outline")
+
+    @property
+    def native_value(self):
+        order = active_order(_orders(self.coordinator))
+        if not order or not order.get("eta"):
+            return None
+        eta = dt_util.parse_datetime(str(order["eta"]))
+        if eta is None:
+            return None
+        return eta if eta.tzinfo else eta.replace(tzinfo=dt_util.UTC)
+
+
+class InstamartBilledAmountSensor(SwiggyEntity, SensorEntity):
+    _attr_native_unit_of_measurement = "INR"
+    _attr_device_class = SensorDeviceClass.MONETARY
+
+    def __init__(self, coordinator):
+        super().__init__(coordinator, "instamart_billed_amount", "Instamart billed amount", "mdi:receipt-text-outline")
+
+    @property
+    def native_value(self):
+        order = active_order(_orders(self.coordinator))
         return order.get("billed_amount") if order else None
 
 
-class InstamartDeliveryAddressSensor(_BaseSensor):
+class InstamartDeliveryAddressSensor(SwiggyEntity, SensorEntity):
     def __init__(self, coordinator):
-        super().__init__(coordinator, "instamart_delivery_address", "Instamart Delivery Address", "mdi:map-marker-outline")
+        super().__init__(coordinator, "instamart_delivery_address", "Instamart delivery address", "mdi:map-marker-outline")
 
     @property
     def native_value(self):
         addresses = self.coordinator.op("instamart", "list_addresses")
-        if not addresses:
+        if not isinstance(addresses, list) or not addresses:
             return None
         default = next((a for a in addresses if a.get("is_default")), addresses[0])
         return default.get("label") or default.get("line1")
 
 
-class DineoutUpcomingBookingSensor(_BaseSensor):
-    def __init__(self, coordinator):
-        super().__init__(coordinator, "dineout_upcoming_booking", "Dineout Upcoming Booking", "mdi:silverware-fork-knife")
-
-    @property
-    def native_value(self):
-        bookings = self.coordinator.op("dineout", "list_bookings")
-        if not bookings:
-            return "none"
-        upcoming = bookings[0]
-        return f"{upcoming.get('restaurant_name', '?')} @ {upcoming.get('slot', '?')}"
-
-
-SENSOR_CLASSES_BY_SERVER = {
-    "instamart": [
-        InstamartCartTotalSensor,
-        InstamartCartItemsSensor,
-        InstamartOrderStatusSensor,
-        InstamartOrderEtaSensor,
-        InstamartBilledAmountSensor,
-        InstamartDeliveryAddressSensor,
-    ],
-    "dineout": [DineoutUpcomingBookingSensor],
-}
-
-
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     coordinator: SwiggyBridgeCoordinator = hass.data[DOMAIN][entry.entry_id]
-    enabled = (coordinator.data or {}).keys() or SENSOR_CLASSES_BY_SERVER.keys()
-
-    entities = []
-    for server, classes in SENSOR_CLASSES_BY_SERVER.items():
-        if server in enabled or not coordinator.data:
-            entities.extend(cls(coordinator) for cls in classes)
-
-    async_add_entities(entities)
+    async_add_entities(
+        cls(coordinator)
+        for cls in (
+            InstamartCartTotalSensor,
+            InstamartCartItemsSensor,
+            InstamartOrderStatusSensor,
+            InstamartOrderEtaSensor,
+            InstamartBilledAmountSensor,
+            InstamartDeliveryAddressSensor,
+        )
+    )
